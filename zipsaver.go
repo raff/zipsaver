@@ -1,12 +1,12 @@
 package main
 
 import (
+	"archive/zip"
+	"bufio"
 	"compress/flate"
 	"encoding/binary"
 	"encoding/hex"
 	"flag"
-	//"archive/zip"
-	"bufio"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -103,32 +103,52 @@ func main() {
 		fmt.Printf("magic   %08x\n", magic)
 		fmt.Printf("version %04x\n", b.uint16())
 		flags := b.uint16()
+		comp := b.uint16()
 		fmt.Printf("flags   %04x\n", flags)
-		fmt.Printf("comp    %04x\n", b.uint16())
+		fmt.Printf("comp    %04x\n", comp)
 		fmt.Printf("time    %04x\n", b.uint16())
 		fmt.Printf("date    %04x\n", b.uint16())
 		fmt.Printf("crc32   %08x\n", b.uint32())
-		fmt.Printf("compressed size   %d\n", b.uint32())
-		fmt.Printf("uncompressed size %d\n", b.uint32())
+		clen := b.uint32()
+		ulen := b.uint32()
+		fmt.Printf("compressed size   %d\n", clen)
+		fmt.Printf("uncompressed size %d\n", ulen)
 		flen := b.uint16()
+		elen := b.uint16()
 		fmt.Printf("filename length %d\n", flen)
-		fmt.Printf("extra length    %d\n", b.uint16())
+		fmt.Printf("extra length    %d\n", elen)
 
 		fn := make([]byte, flen)
 		if _, err := io.ReadFull(r, fn); err != nil {
-			log.Fatal("file name ", err)
+			log.Fatal("read file name ", err)
+		}
+
+		if elen > 0 {
+			if _, err := io.CopyN(ioutil.Discard, r, int64(elen)); err != nil {
+				log.Fatal("read extra ", err)
+			}
 		}
 
 		fmt.Println()
 		fmt.Println("filename", string(fn))
 
-		dec := flate.NewReader(r)
-		n, err := io.Copy(ioutil.Discard, dec)
-		fmt.Println("decoded", n, "bytes")
-		if err != nil {
-			log.Fatal("decode file ", err)
+		if comp == zip.Deflate {
+			dec := flate.NewReader(r)
+			n, err := io.Copy(ioutil.Discard, dec)
+			fmt.Println("decoded", n, "bytes")
+			if err != nil {
+				log.Fatal("decode file ", err)
+			} else {
+				dec.Close()
+			}
+		} else if ulen > 0 {
+			n, err := io.CopyN(ioutil.Discard, r, int64(ulen))
+			fmt.Println("read", n, "bytes")
+			if err != nil {
+				log.Fatal("read file ", err)
+			}
 		} else {
-			dec.Close()
+			log.Fatal("missing lenght")
 		}
 
 		if (flags & 0x08) != 0 {
