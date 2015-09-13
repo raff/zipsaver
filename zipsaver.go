@@ -115,8 +115,8 @@ func main() {
 		fmt.Printf("uncompressed size %d\n", ulen)
 		flen := b.uint16()
 		elen := b.uint16()
-		fmt.Printf("filename length %d\n", flen)
-		fmt.Printf("extra length    %d\n", elen)
+		fmt.Printf("filename length   %d\n", flen)
+		fmt.Printf("extra length      %d\n", elen)
 
 		fn := make([]byte, flen)
 		if _, err := io.ReadFull(r, fn); err != nil {
