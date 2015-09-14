@@ -13,17 +13,18 @@ import (
 	"log"
 	"os"
 	"path"
+	"path/filepath"
 )
 
 // from archive/zip struct.go
 
 const (
-	fileHeaderSignature     = 0x04034b50
-        directoryHeaderSignature = 0x02014b50
-	dataDescriptorSignature = 0x08074b50 // de-facto standard; required by OS X Finder
-	fileHeaderLen           = 30         // + filename + extra
-	dataDescriptorLen       = 16         // four uint32: descriptor signature, crc32, compressed size, size
-	dataDescriptor64Len     = 24         // descriptor with 8 byte sizes
+	fileHeaderSignature      = 0x04034b50
+	directoryHeaderSignature = 0x02014b50
+	dataDescriptorSignature  = 0x08074b50 // de-facto standard; required by OS X Finder
+	fileHeaderLen            = 30         // + filename + extra
+	dataDescriptorLen        = 16         // four uint32: descriptor signature, crc32, compressed size, size
+	dataDescriptor64Len      = 24         // descriptor with 8 byte sizes
 
 	// version numbers
 	zipVersion20 = 20 // 2.0
@@ -52,7 +53,7 @@ func (b *readBuf) uint64() uint64 {
 
 func main() {
 	debug := flag.Bool("debug", false, "print debug info")
-	//view := flag.Bool("v", false, "view list")
+	view := flag.Bool("v", false, "view list")
 
 	flag.Parse()
 
@@ -97,11 +98,11 @@ func main() {
 
 		ctype := ""
 
-                if magic == directoryHeaderSignature {
-                        // got central directory. Done
-                        log.Println("found central directory")
-                        break
-                }
+		if magic == directoryHeaderSignature {
+			// got central directory. Done
+			log.Println("found central directory")
+			break
+		}
 
 		if magic != fileHeaderSignature {
 			log.Fatal("invalid file header signature ", fmt.Sprintf("%08x", magic))
@@ -142,15 +143,43 @@ func main() {
 		case zip.Deflate:
 			ctype = "Defl:N"
 
+			w := ioutil.Discard
+			if !*view {
+				filename := string(fn)
+				fmt.Println("inflating:", filename)
+
+				dir := filepath.Dir(filename)
+				if dir != "" {
+					if err := os.MkdirAll(dir, 0755); err != nil {
+						log.Println("mkdir", dir, err)
+					}
+				}
+
+				if f, err := os.Create(filename); err != nil {
+					log.Fatal("create ", fn, err)
+				} else {
+					w = f
+				}
+			}
+
 			dec := flate.NewReader(r)
-			n, err := io.Copy(ioutil.Discard, dec)
+			n, err := io.Copy(w, dec)
 			if *debug {
 				fmt.Println("decoded", n, "bytes")
 			}
 			if err != nil {
+				if wc, ok := w.(io.Closer); ok {
+					wc.Close()
+					os.Remove(string(fn))
+				}
+
 				log.Fatal("decode file ", err)
 			} else {
 				dec.Close()
+
+				if wc, ok := w.(io.Closer); ok {
+					wc.Close()
+				}
 			}
 
 		case zip.Store:
@@ -199,7 +228,9 @@ func main() {
 			}
 		}
 
-		pc := 100 - (clen * 100 / ulen)
-		fmt.Printf("%8d  %6s  %8d  %2d%%  %08x  %s\n", ulen, ctype, clen, pc, crc32, fn)
+		if *view {
+			pc := 100 - (clen * 100 / ulen)
+			fmt.Printf("%8d  %6s  %8d  %2d%%  %08x  %s\n", ulen, ctype, clen, pc, crc32, fn)
+		}
 	}
 }
