@@ -19,6 +19,7 @@ import (
 
 const (
 	fileHeaderSignature     = 0x04034b50
+        directoryHeaderSignature = 0x02014b50
 	dataDescriptorSignature = 0x08074b50 // de-facto standard; required by OS X Finder
 	fileHeaderLen           = 30         // + filename + extra
 	dataDescriptorLen       = 16         // four uint32: descriptor signature, crc32, compressed size, size
@@ -96,8 +97,14 @@ func main() {
 
 		ctype := ""
 
+                if magic == directoryHeaderSignature {
+                        // got central directory. Done
+                        log.Println("found central directory")
+                        break
+                }
+
 		if magic != fileHeaderSignature {
-			log.Fatal("invalid file header signature ", magic)
+			log.Fatal("invalid file header signature ", fmt.Sprintf("%08x", magic))
 		}
 
 		if *debug {
