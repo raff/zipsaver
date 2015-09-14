@@ -12,6 +12,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"path"
 )
 
 // from archive/zip struct.go
@@ -55,7 +56,7 @@ func main() {
 	flag.Parse()
 
 	if flag.NArg() != 1 {
-		log.Fatal("usage: ", os.Args[0], " {zip-file}")
+		log.Fatal("usage: ", path.Base(os.Args[0]), " {zip-file}")
 	}
 
 	zipfile := flag.Arg(0)
@@ -70,8 +71,6 @@ func main() {
 	r := bufio.NewReader(f)
 
 	for {
-		fmt.Println()
-
 		var fh [fileHeaderLen]byte
 
 		if _, err := io.ReadFull(r, fh[:]); err != nil {
@@ -95,11 +94,14 @@ func main() {
 		flen := b.uint16()
 		elen := b.uint16()
 
+		ctype := ""
+
 		if magic != fileHeaderSignature {
 			log.Fatal("invalid file header signature ", magic)
 		}
 
 		if *debug {
+			fmt.Println()
 			fmt.Printf("magic   %08x\n", magic)
 			fmt.Printf("version %04x\n", version)
 			fmt.Printf("flags   %04x\n", flags)
@@ -131,9 +133,13 @@ func main() {
 
 		switch comp {
 		case zip.Deflate:
+			ctype = "Defl:N"
+
 			dec := flate.NewReader(r)
 			n, err := io.Copy(ioutil.Discard, dec)
-			fmt.Println("decoded", n, "bytes")
+			if *debug {
+				fmt.Println("decoded", n, "bytes")
+			}
 			if err != nil {
 				log.Fatal("decode file ", err)
 			} else {
@@ -141,9 +147,13 @@ func main() {
 			}
 
 		case zip.Store:
+			ctype = "Stored"
+
 			if ulen > 0 {
 				n, err := io.CopyN(ioutil.Discard, r, int64(ulen))
-				fmt.Println("read", n, "bytes")
+				if *debug {
+					fmt.Println("read", n, "bytes")
+				}
 				if err != nil {
 					log.Fatal("read file ", err)
 				}
@@ -164,8 +174,6 @@ func main() {
 			}
 
 			b := readBuf(dd[:])
-			fmt.Println()
-
 			magic := b.uint32()
 			crc32 = b.uint32()
 			clen = b.uint32()
@@ -176,11 +184,15 @@ func main() {
 			}
 
 			if *debug {
+				fmt.Println()
 				fmt.Printf("magic   %08x\n", magic)
 				fmt.Printf("crc32   %08x\n", crc32)
 				fmt.Printf("compressed size   %d\n", clen)
 				fmt.Printf("uncompressed size %d\n", ulen)
 			}
 		}
+
+		pc := 100 - (clen * 100 / ulen)
+		fmt.Printf("%8d  %6s  %8d  %2d%%  %08x  %s\n", ulen, ctype, clen, pc, crc32, fn)
 	}
 }
