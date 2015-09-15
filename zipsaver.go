@@ -54,6 +54,7 @@ func (b *readBuf) uint64() uint64 {
 func main() {
 	debug := flag.Bool("debug", false, "print debug info")
 	view := flag.Bool("v", false, "view list")
+	out := flag.String("out", "", "write recovered files to output zip file")
 
 	flag.Parse()
 
@@ -72,11 +73,29 @@ func main() {
 
 	r := bufio.NewReader(f)
 
+	var outz *zip.Writer
+
+	if len(*out) > 0 {
+		outf, err := os.Create(*out)
+		if err != nil {
+			log.Fatal("create output", err)
+		}
+
+		outz = zip.NewWriter(outf)
+
+		defer func() {
+			outz.Close()
+			outf.Close()
+		}()
+	}
+
+Loop:
 	for {
 		var fh [fileHeaderLen]byte
 
 		if _, err := io.ReadFull(r, fh[:]); err != nil {
-			log.Fatal("file header ", err)
+			log.Println("file header", err)
+			break Loop
 		}
 
 		if *debug {
@@ -101,7 +120,7 @@ func main() {
 		if magic == directoryHeaderSignature {
 			// got central directory. Done
 			log.Println("found central directory")
-			break
+			break Loop
 		}
 
 		if magic != fileHeaderSignature {
@@ -125,7 +144,8 @@ func main() {
 
 		fn := make([]byte, flen)
 		if _, err := io.ReadFull(r, fn); err != nil {
-			log.Fatal("read file name ", err)
+			log.Println("read file name", err)
+			break Loop
 		}
 
 		if *debug {
@@ -135,17 +155,29 @@ func main() {
 
 		if elen > 0 {
 			if _, err := io.CopyN(ioutil.Discard, r, int64(elen)); err != nil {
-				log.Fatal("read extra ", err)
+				log.Println("read extra", err)
+				break Loop
 			}
 		}
+
+		filename := string(fn)
 
 		switch comp {
 		case zip.Deflate:
 			ctype = "Defl:N"
 
-			w := ioutil.Discard
-			if !*view {
-				filename := string(fn)
+			var w io.Writer
+
+			if *view {
+				w = ioutil.Discard
+			} else if outz != nil {
+				fmt.Println("adding:", filename)
+				if f, err := outz.Create(filename); err != nil {
+					log.Fatal("create zip entry ", filename, err)
+				} else {
+					w = f
+				}
+			} else {
 				fmt.Println("inflating:", filename)
 
 				dir := filepath.Dir(filename)
@@ -156,7 +188,7 @@ func main() {
 				}
 
 				if f, err := os.Create(filename); err != nil {
-					log.Fatal("create ", fn, err)
+					log.Fatal("create ", filename, err)
 				} else {
 					w = f
 				}
@@ -170,10 +202,11 @@ func main() {
 			if err != nil {
 				if wc, ok := w.(io.Closer); ok {
 					wc.Close()
-					os.Remove(string(fn))
+					os.Remove(filename)
 				}
 
-				log.Fatal("decode file ", err)
+				log.Println("decode file", err)
+				break Loop
 			} else {
 				dec.Close()
 
@@ -230,7 +263,7 @@ func main() {
 
 		if *view {
 			pc := 100 - (clen * 100 / ulen)
-			fmt.Printf("%8d  %6s  %8d  %2d%%  %08x  %s\n", ulen, ctype, clen, pc, crc32, fn)
+			fmt.Printf("%8d  %6s  %8d  %2d%%  %08x  %s\n", ulen, ctype, clen, pc, crc32, filename)
 		}
 	}
 }
