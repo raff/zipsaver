@@ -55,6 +55,7 @@ func main() {
 	debug := flag.Bool("debug", false, "print debug info")
 	view := flag.Bool("v", false, "view list")
 	out := flag.String("out", "", "write recovered files to output zip file")
+	override := flag.Bool("override", false, "override existing files")
 
 	flag.Parse()
 
@@ -75,8 +76,13 @@ func main() {
 
 	var outz *zip.Writer
 
+	create_flags := os.O_RDWR | os.O_CREATE | os.O_TRUNC
+	if !*override {
+		create_flags |= os.O_EXCL
+	}
+
 	if len(*out) > 0 {
-		outf, err := os.Create(*out)
+		outf, err := os.OpenFile(*out, create_flags, 0666)
 		if err != nil {
 			log.Fatal("create output", err)
 		}
@@ -124,7 +130,8 @@ Loop:
 		}
 
 		if magic != fileHeaderSignature {
-			log.Fatal("invalid file header signature ", fmt.Sprintf("%08x", magic))
+			log.Println("invalid file header signature ", fmt.Sprintf("%08x", magic))
+			break Loop
 		}
 
 		if *debug {
@@ -187,7 +194,7 @@ Loop:
 					}
 				}
 
-				if f, err := os.Create(filename); err != nil {
+				if f, err := os.OpenFile(filename, create_flags, 0666); err != nil {
 					log.Fatal("create ", filename, err)
 				} else {
 					w = f
