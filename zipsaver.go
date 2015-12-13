@@ -269,7 +269,10 @@ Loop:
 		}
 
 		if *view {
-			pc := 100 - (clen * 100 / ulen)
+			pc := 0
+			if ulen != 0 {
+				pc = 100 - int(clen*100/ulen)
+			}
 			fmt.Printf("%8d  %6s  %8d  %2d%%  %08x  %s\n", ulen, ctype, clen, pc, crc32, filename)
 		}
 	}
