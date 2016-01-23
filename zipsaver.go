@@ -57,10 +57,17 @@ func main() {
 	out := flag.String("out", "", "write recovered files to output zip file")
 	override := flag.Bool("override", false, "override existing files")
 
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "usage: %s [options] {zip-file}\n", path.Base(os.Args[0]))
+		fmt.Fprintf(os.Stderr, "options:\n")
+		flag.PrintDefaults()
+	}
+
 	flag.Parse()
 
 	if flag.NArg() != 1 {
-		log.Fatal("usage: ", path.Base(os.Args[0]), " {zip-file}")
+		flag.Usage()
+		return
 	}
 
 	zipfile := flag.Arg(0)
