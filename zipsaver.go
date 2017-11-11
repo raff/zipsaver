@@ -241,7 +241,7 @@ Loop:
 					log.Fatal("read file ", err)
 				}
 			} else {
-				log.Fatal("missing lenght")
+				log.Fatal("missing length")
 			}
 
 		default:
