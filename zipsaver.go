@@ -19,12 +19,13 @@ import (
 // from archive/zip struct.go
 
 const (
-	fileHeaderSignature      = 0x04034b50
-	directoryHeaderSignature = 0x02014b50
-	dataDescriptorSignature  = 0x08074b50 // de-facto standard; required by OS X Finder
-	fileHeaderLen            = 30         // + filename + extra
-	dataDescriptorLen        = 16         // four uint32: descriptor signature, crc32, compressed size, size
-	dataDescriptor64Len      = 24         // descriptor with 8 byte sizes
+	fileHeaderSignature       = 0x04034b50
+	directoryHeaderSignature  = 0x02014b50
+	dataDescriptorSignature   = 0x08074b50 // de-facto standard; required by OS X Finder
+	archiveExtraDataSignature = 0x08064b50
+	fileHeaderLen             = 30 // + filename + extra
+	dataDescriptorLen         = 12 // three uint32: crc32, compressed size, size (dataDescriptionSignature may not be there)
+	dataDescriptor64Len       = 20 // descriptor with 8 byte sizes
 
 	// version numbers
 	zipVersion20 = 20 // 2.0
@@ -112,8 +113,11 @@ Loop:
 		}
 
 		if *debug {
-			fmt.Println(hex.Dump(fh[:]))
+			fmt.Println()
+			fmt.Print(hex.Dump(fh[:]))
 		}
+
+		var clen, ulen uint64
 
 		b := readBuf(fh[:])
 		magic := b.uint32()
@@ -123,8 +127,8 @@ Loop:
 		ctime := b.uint16()
 		cdate := b.uint16()
 		crc32 := b.uint32()
-		clen := b.uint32()
-		ulen := b.uint32()
+		clen = uint64(b.uint32())
+		ulen = uint64(b.uint32())
 		flen := b.uint16()
 		elen := b.uint16()
 
@@ -141,11 +145,49 @@ Loop:
 			break Loop
 		}
 
+		sflags := ""
+
+		if (flags & 0x01) != 0 {
+			sflags += " Encrypted"
+		}
+		if comp == 6 {
+			if (flags & 0x02) != 0 {
+				sflags += " 8k"
+			}
+			if (flags & 0x04) != 0 {
+				sflags += " 3SF"
+			}
+		} else if comp == 14 {
+			if (flags & 0x02) != 0 {
+				sflags += " EOS"
+			}
+		} else {
+			switch (flags & 0x6) >> 1 {
+			case 0:
+				sflags += " Normal"
+			case 1:
+				sflags += " Max"
+			case 2:
+				sflags += " Fast"
+			case 3:
+				sflags += " SuperFast"
+			}
+		}
+		if (flags & 0x08) != 0 {
+			sflags += " DataDesc"
+		}
+		if (flags & 0x10) != 0 {
+			sflags += " Patched"
+		}
+		if (flags & 0x20) != 0 {
+			sflags += " StrongEncryption"
+		}
+
 		if *debug {
 			fmt.Println()
 			fmt.Printf("magic   %08x\n", magic)
-			fmt.Printf("version %04x\n", version)
-			fmt.Printf("flags   %04x\n", flags)
+			fmt.Printf("version %d\n", version)
+			fmt.Printf("flags   %04x%s\n", flags, sflags)
 			fmt.Printf("comp    %04x\n", comp)
 			fmt.Printf("time    %04x\n", ctime)
 			fmt.Printf("date    %04x\n", cdate)
@@ -250,25 +292,47 @@ Loop:
 
 		if (flags & 0x08) != 0 {
 			// data descriptor
-			var dd [dataDescriptorLen]byte
+			var dd [dataDescriptor64Len]byte
 
-			if _, err := io.ReadFull(r, dd[:]); err != nil {
+			dl := dataDescriptorLen
+			if version >= zipVersion45 {
+				dl = dataDescriptor64Len
+			}
+
+			if _, err := io.ReadFull(r, dd[0:4]); err != nil {
+				log.Fatal("data descriptor header", err)
+			}
+
+			var hasMagic bool
+
+			b := readBuf(dd[0:4])
+			if b.uint32() == dataDescriptorSignature {
+				hasMagic = true
+
+				if _, err := io.ReadFull(r, dd[:dl]); err != nil {
+					log.Fatal("data descriptor", err)
+				}
+			} else if _, err := io.ReadFull(r, dd[4:dl-4]); err != nil {
 				log.Fatal("data descriptor", err)
 			}
 
-			b := readBuf(dd[:])
-			magic := b.uint32()
-			crc32 = b.uint32()
-			clen = b.uint32()
-			ulen = b.uint32()
+			b = readBuf(dd[0:dl])
 
-			if magic != dataDescriptorSignature {
-				log.Fatal("invalid data descriptor signature ", magic)
+			if version < zipVersion45 {
+				crc32 = b.uint32()
+				clen = uint64(b.uint32())
+				ulen = uint64(b.uint32())
+			} else {
+				crc32 = b.uint32()
+				clen = b.uint64()
+				ulen = b.uint64()
 			}
 
 			if *debug {
 				fmt.Println()
-				fmt.Printf("magic   %08x\n", magic)
+				if hasMagic {
+					fmt.Printf("magic   %08x\n", dataDescriptorSignature)
+				}
 				fmt.Printf("crc32   %08x\n", crc32)
 				fmt.Printf("compressed size   %d\n", clen)
 				fmt.Printf("uncompressed size %d\n", ulen)
